@@ -81,14 +81,10 @@ force_cuda_compatibility()
 environ['TORCH_CUDA_ARCH_LIST'] = get_cuda_arch()
 
 from setuptools import setup
-from torch.utils.cpp_extension import CUDAExtension
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 # Custom build extension that bypasses CUDA version check
-class CustomBuildExtension:
-    def __init__(self, *args, **kwargs):
-        from torch.utils.cpp_extension import BuildExtension
-        self.build_ext = BuildExtension(*args, **kwargs)
-    
+class CustomBuildExtension(BuildExtension):
     def build_extensions(self):
         # Monkey patch the CUDA version check
         import torch.utils.cpp_extension
@@ -101,7 +97,7 @@ class CustomBuildExtension:
         torch.utils.cpp_extension._check_cuda_version = dummy_check
         
         # Call the original build_extensions
-        self.build_ext.build_extensions()
+        super().build_extensions()
         
         # Restore the original function
         torch.utils.cpp_extension._check_cuda_version = original_check
