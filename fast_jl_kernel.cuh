@@ -4,8 +4,16 @@
 #include <cuda_fp16.h>
 #include <vector_types.h>
 #include <curand_kernel.h>
-#include <cuda_pipeline.h>
+
+// Conditional includes for different CUDA versions
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
 #include <mma.h>
+#endif
+
+// Only include cuda_pipeline for newer CUDA versions
+#if CUDA_VERSION >= 11000
+#include <cuda_pipeline.h>
+#endif
 
 #define WARP_SIZE 32
 #define CHUNK_COL 32
@@ -16,10 +24,12 @@
 #include "data_loading.cuh"
 #include "types.cuh"
 
-
 using namespace std;
-using namespace nvcuda::wmma;
 
+// Conditional namespace usage for WMMA
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
+using namespace nvcuda::wmma;
+#endif
 
 template<typename InputType, ProjectionType p_type, uint32_t NUM_BATCHES, uint32_t CHUNKS_PER_TILE>
 __global__ void
@@ -49,12 +59,26 @@ project_kernel(InputType *__restrict__ input,
     // Pointer to the location where this warp will store its random coefficients
     half* warp_factors = &factors[threadIdx.z][0][0];
 
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
     fragment<matrix_a, CHUNK_ROW, CHUNK_COL, 16, half, row_major> data_fragment;
     fragment<matrix_b, CHUNK_ROW, CHUNK_COL, 16, half, row_major> factors_fragment;
     fragment<accumulator, CHUNK_ROW, CHUNK_COL, 16, float> accumulator[NUM_BATCHES];
+#else
+    // Fallback for older architectures - use regular matrix operations
+    float accumulator[NUM_BATCHES][CHUNK_ROW][CHUNK_COL];
+#endif
 
     for (uint32_t batch = 0; batch < NUM_BATCHES; batch++) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
         fill_fragment((accumulator[batch]), 0.0f);
+#else
+        // Initialize accumulator manually
+        for (int i = 0; i < CHUNK_ROW; i++) {
+            for (int j = 0; j < CHUNK_COL; j++) {
+                accumulator[batch][i][j] = 0.0f;
+            }
+        }
+#endif
     }
 
     for (uint32_t iteration = 0; iteration < feature_tile_size; iteration += 16 * CHUNKS_PER_TILE) {
@@ -77,6 +101,8 @@ project_kernel(InputType *__restrict__ input,
 
             // Generate and load the random coefficients (These are shared for all the batches)
             jl_random::generate_factors_fragment<p_type>(warp_factors, random_state);
+            
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
             load_matrix_sync(factors_fragment, warp_factors , CHUNK_COL);
 
 #pragma unroll
@@ -84,6 +110,22 @@ project_kernel(InputType *__restrict__ input,
                 load_matrix_sync(data_fragment, &input_buffer[batch][cur_chunk][0][0], 16);
                 mma_sync(accumulator[batch], data_fragment, factors_fragment, accumulator[batch]);
             }
+#else
+            // Fallback implementation for older architectures
+            for (uint32_t batch = 0 ; batch < NUM_BATCHES; batch++) {
+                // Simple matrix multiplication fallback
+                for (int i = 0; i < CHUNK_ROW; i++) {
+                    for (int j = 0; j < CHUNK_COL; j++) {
+                        float sum = 0.0f;
+                        for (int k = 0; k < 16; k++) {
+                            sum += __half2float(input_buffer[batch][cur_chunk][i][k]) * 
+                                   __half2float(warp_factors[k * CHUNK_COL + j]);
+                        }
+                        accumulator[batch][i][j] += sum;
+                    }
+                }
+            }
+#endif
         }
 
         // Let's not start overwrite stuff while some threads might still be using it
@@ -96,11 +138,24 @@ project_kernel(InputType *__restrict__ input,
                 + blockIdx.x * (WARP_SIZE * blockDim.z)
                 + blockIdx.y * output_dims);
 
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 750
         store_matrix_sync(
                 output
                 + batch * (output_dims * gridDim.y * CHUNK_ROW)
                 + col_output_warp,
                 accumulator[batch], output_dims * gridDim.y, mem_row_major);
+#else
+        // Manual store for older architectures
+        for (int i = 0; i < CHUNK_ROW; i++) {
+            for (int j = 0; j < CHUNK_COL; j++) {
+                int idx = batch * (output_dims * gridDim.y * CHUNK_ROW) + 
+                         col_output_warp + i * (output_dims * gridDim.y) + j;
+                if (idx < output_dims * gridDim.y * CHUNK_ROW * NUM_BATCHES) {
+                    output[idx] = accumulator[batch][i][j];
+                }
+            }
+        }
+#endif
     }
 }
 

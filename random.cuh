@@ -6,6 +6,7 @@
 #define MEGAFASTJL_JL_RANDOM_H
 
 #include <curand_kernel.h>
+#include <cuda_fp16.h>
 
 #include "types.cuh"
 
@@ -31,15 +32,15 @@ namespace jl_random {
         for (uint32_t x = 0; x < 8; x++) {
             half2 toto;
             if (random_bits & 1) {
-                toto.x =__float2half(1.0f);
+                toto.x = __float2half(1.0f);
             } else {
-                toto.x =__float2half(-1.0f);
+                toto.x = __float2half(-1.0f);
             }
             random_bits >>= 1;
             if (random_bits & 1) {
-                toto.y =__float2half(1.0f);
+                toto.y = __float2half(1.0f);
             } else {
-                toto.y =__float2half(-1.0f);
+                toto.y = __float2half(-1.0f);
             }
             dst2[threadIdx.x + threadIdx.y * 16] = toto;
             random_bits >>= 1;
@@ -58,10 +59,6 @@ namespace jl_random {
             dst2 += 32;
         }
     }
-
-
 }
-
-
 
 #endif //MEGAFASTJL_JL_RANDOM_H

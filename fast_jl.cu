@@ -97,14 +97,11 @@ torch::Tensor proj_normal_32(torch::Tensor input, uint32_t N, uint32_t seed, uin
     return fast_jl<Normal, 4>(input, N, seed, num_feature_tiles);
 }
 
-
-
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("project_rademacher_8", &proj_rademacher_8, "Fast Random Projection (CUDA)");
-    m.def("project_rademacher_16", &proj_rademacher_16, "Fast Random Projection (CUDA)");
-    m.def("project_rademacher_32", &proj_rademacher_32, "Fast Random Projection (CUDA)");
-
-    m.def("project_normal_8", &proj_normal_8, "Fast Random Projection (CUDA)");
-    m.def("project_normal_16", &proj_normal_16, "Fast Random Projection (CUDA)");
-    m.def("project_normal_32", &proj_normal_32, "Fast Random Projection (CUDA)");
+    m.def("proj_rademacher_8", &proj_rademacher_8, "Fast JL Rademacher projection with 8 batches");
+    m.def("proj_rademacher_16", &proj_rademacher_16, "Fast JL Rademacher projection with 16 batches");
+    m.def("proj_rademacher_32", &proj_rademacher_32, "Fast JL Rademacher projection with 32 batches");
+    m.def("proj_normal_8", &proj_normal_8, "Fast JL Normal projection with 8 batches");
+    m.def("proj_normal_16", &proj_normal_16, "Fast JL Normal projection with 16 batches");
+    m.def("proj_normal_32", &proj_normal_32, "Fast JL Normal projection with 32 batches");
 }
