@@ -5,6 +5,7 @@ error_handling.cuh
 fast_jl.cu
 fast_jl_kernel.cuh
 random.cuh
+setup.cfg
 setup.py
 types.cuh
 fast_jl.egg-info/PKG-INFO
